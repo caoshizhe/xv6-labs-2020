@@ -67,7 +67,24 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else {
+  } 
+    else if (r_scause() == 13 || r_scause() == 15) { // 和上一节实验一样，响应页错误
+        pte_t *pte;
+        uint64 va = r_stval();
+        // 检查地址是否合法
+        if (va >= p->sz)
+            exit(-1);
+        pte = walk(p->pagetable, va, 0);
+        // 检查 pte 是否有效且是个 cow 页，不满足条件直接干掉进程
+        if (pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_COW) == 0)
+            exit(-1);
+        // 如果是 cow 页面，尝试为它完成写时复制
+        if (cow_handler(p->pagetable, va) == -1) {
+            exit(-1);
+        }
+    }
+  
+  else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;
