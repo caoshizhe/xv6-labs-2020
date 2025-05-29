@@ -23,34 +23,47 @@
 #include "fs.h"
 #include "buf.h"
 
+#define NBUCKET 13  // 哈希桶数量，一般用质数
+#define NBUFFER CEIL(NBUF, NBUCKET)  // 每个桶的 buf 数量， NBUF 默认为 30，这里向上取整后结果应该是 3，即每个桶里面有 3 个 buf
+
+#define CEIL(num, divisor) (((num) + (divisor) - 1) / (divisor)) // 向上取整的宏
+
 struct {
   struct spinlock lock;
-  struct buf buf[NBUF];
+  struct buf buf[NBUFFER];
 
   // Linked list of all buffers, through prev/next.
   // Sorted by how recently the buffer was used.
   // head.next is most recent, head.prev is least.
-  struct buf head;
-} bcache;
+  //struct buf head;
+} bcache[NBUCKET];
+
+static uint global_timestamp;  // 全局时间戳计数器
 
 void
 binit(void)
 {
-  struct buf *b;
+  for (int i = 0; i < NBUCKET; i++) {
+      initlock(&bcache[i].lock, "bcache");
+      for (int j = 0; j < NBUFFER; j++) {
+          bcache[i].buf[j].timestamp = 0; // 初始化时间戳为 0
+          initsleeplock(&bcache[i].buf[j].lock, "buffer");
+      }
+  }
+  //struct buf *b;
 
-  initlock(&bcache.lock, "bcache");
+  //initlock(&bcache.lock, "bcache");
 
   // Create linked list of buffers
-  bcache.head.prev = &bcache.head;
-  bcache.head.next = &bcache.head;
-  for(b = bcache.buf; b < bcache.buf+NBUF; b++){
-    b->next = bcache.head.next;
-    b->prev = &bcache.head;
-    initsleeplock(&b->lock, "buffer");
-    bcache.head.next->prev = b;
-    bcache.head.next = b;
+  //bcache.head.prev = &bcache.head;
+  //bcache.head.next = &bcache.head;
+  //for(b = bcache.buf; b < bcache.buf+NBUF; b++){
+    //b->next = bcache.head.next;
+    //b->prev = &bcache.head;
+    //initsleeplock(&b->lock, "buffer");
+    //bcache.head.next->prev = b;
+    //bcache.head.next = b;
   }
-}
 
 // Look through buffer cache for block on device dev.
 // If not found, allocate a buffer.
@@ -59,32 +72,107 @@ static struct buf*
 bget(uint dev, uint blockno)
 {
   struct buf *b;
+  uint bucket_id = hash(blockno);
 
-  acquire(&bcache.lock);
+  //acquire(&bcache.lock);
 
+  uint min_refcnt = 0xffffffff;
+  uint min_timestamp = 0xffffffff;
+  struct buf *least_used_oldest_buf = 0;
   // Is the block already cached?
-  for(b = bcache.head.next; b != &bcache.head; b = b->next){
-    if(b->dev == dev && b->blockno == blockno){
-      b->refcnt++;
-      release(&bcache.lock);
-      acquiresleep(&b->lock);
-      return b;
-    }
-  }
+  //for(b = bcache.head.next; b != &bcache.head; b = b->next){
+    //if(b->dev == dev && b->blockno == blockno){
+      //b->refcnt++;
+      //release(&bcache.lock);
+      //acquiresleep(&b->lock);
+      //return b;
+    //}
+  //}
 
   // Not cached.
   // Recycle the least recently used (LRU) unused buffer.
-  for(b = bcache.head.prev; b != &bcache.head; b = b->prev){
-    if(b->refcnt == 0) {
-      b->dev = dev;
-      b->blockno = blockno;
-      b->valid = 0;
-      b->refcnt = 1;
-      release(&bcache.lock);
+  //for(b = bcache.head.prev; b != &bcache.head; b = b->prev){
+    //if(b->refcnt == 0) {
+      //b->dev = dev;
+      //b->blockno = blockno;
+      //b->valid = 0;
+      //b->refcnt = 1;
+      //release(&bcache.lock);
+      //acquiresleep(&b->lock);
+      //return b;
+    //}
+  //}
+  // 优先在当前哈希桶中，查找已缓存的块
+  acquire(&bcache[bucket_id].lock);
+
+  for(int i = 0; i < NBUFFER; i++) {
+    b = &bcache[bucket_id].buf[i];
+    if(b->dev == dev && b->blockno == blockno) {
+      b->refcnt++;
+      // 增加引用的同时，更新时间戳
+      update_timestamp(b);
+      release(&bcache[bucket_id].lock);
       acquiresleep(&b->lock);
       return b;
     }
+
+  if(b->refcnt <= min_refcnt && b->timestamp < min_timestamp) {
+        min_refcnt = b->refcnt;
+        min_timestamp = b->timestamp;
+        least_used_oldest_buf = b;
+    }
   }
+  release(&bcache[bucket_id].lock);
+
+  //uint min_timestamp = 0xffffffff;
+  //struct buf *least_used_buf = 0;
+
+  // 没有找到缓存块，和上一小节的 kalloc 一样，环形遍历所有桶，查找其他桶中未使用的空闲块
+  // 遍历所有桶的过程中，记录最少使用并且最久未使用的块
+  // 如果没有空闲块，那么就直接使用 最少使用并且最久未使用的块
+
+  for(int i = 0, cur_bucket = bucket_id; i < NBUCKET; i++, cur_bucket++) {
+    if(cur_bucket == NBUCKET)
+      cur_bucket = 0;  // 环形遍历
+
+    acquire(&bcache[cur_bucket].lock);
+    for(int j = 0; j < NBUFFER; j++) {
+      b = &bcache[cur_bucket].buf[j];
+      if(b->refcnt == 0) {  // 找到未使用的块
+        b->dev = dev;
+        b->blockno = blockno;
+        b->valid = 0;
+        b->refcnt = 1;
+        update_timestamp(b);
+
+        release(&bcache[cur_bucket].lock);
+        acquiresleep(&b->lock);
+        return b;
+      }
+
+      //更新 最久未使用的 buffer
+   if(b->refcnt <= min_refcnt && b->timestamp < min_timestamp) {
+        min_refcnt = b->refcnt;
+        min_timestamp = b->timestamp;
+        least_used_oldest_buf = b;
+      }
+    }
+    release(&bcache[cur_bucket].lock);
+  }
+      // 其他桶里面也没有空闲块，那就只能使用 最久未使用的 buffer
+  if(least_used_oldest_buf) {
+    acquire(&bcache[bucket_id].lock);
+    // 一大堆赋值和初始化操作
+    least_used_oldest_buf->dev = dev;
+    least_used_oldest_buf->blockno = blockno;
+    least_used_oldest_buf->valid = 0;
+    least_used_oldest_buf->refcnt = 1;
+    update_timestamp(least_used_oldest_buf);
+    release(&bcache[bucket_id].lock);
+    acquiresleep(&least_used_oldest_buf->lock);
+    return least_used_oldest_buf;
+  }
+
   panic("bget: no buffers");
 }
 
@@ -119,35 +207,61 @@ brelse(struct buf *b)
   if(!holdingsleep(&b->lock))
     panic("brelse");
 
+  int bucket_id = hash(b->blockno);
+  acquire(&bcache[bucket_id].lock);
+  b->refcnt--;
+  release(&bcache[bucket_id].lock);
+
   releasesleep(&b->lock);
 
-  acquire(&bcache.lock);
-  b->refcnt--;
-  if (b->refcnt == 0) {
+  //acquire(&bcache.lock);
+  //b->refcnt--;
+  //if (b->refcnt == 0) {
     // no one is waiting for it.
-    b->next->prev = b->prev;
-    b->prev->next = b->next;
-    b->next = bcache.head.next;
-    b->prev = &bcache.head;
-    bcache.head.next->prev = b;
-    bcache.head.next = b;
+    //b->next->prev = b->prev;
+    //b->prev->next = b->next;
+    //b->next = bcache.head.next;
+    //b->prev = &bcache.head;
+    //bcache.head.next->prev = b;
+    //bcache.head.next = b;
   }
   
-  release(&bcache.lock);
-}
+  //release(&bcache.lock);
 
 void
 bpin(struct buf *b) {
-  acquire(&bcache.lock);
+  //acquire(&bcache.lock);
+  //b->refcnt++;
+  //release(&bcache.lock);
+  int bucket_id = hash(b->blockno);
+  acquire(&bcache[bucket_id].lock);
   b->refcnt++;
-  release(&bcache.lock);
+  release(&bcache[bucket_id].lock);
 }
 
 void
 bunpin(struct buf *b) {
-  acquire(&bcache.lock);
+  int bucket_id = hash(b->blockno);
+  acquire(&bcache[bucket_id].lock);
   b->refcnt--;
-  release(&bcache.lock);
+  release(&bcache[bucket_id].lock);
+  //acquire(&bcache.lock);
+  //b->refcnt--;
+  //release(&bcache.lock);
 }
 
 
+uint
+hash(uint blockno)
+{
+    return blockno % NBUCKET;
+}
+
+
+void
+update_timestamp(struct buf *b)
+{
+    // 这里 global_timestamp 会有溢出问题，暂不考虑优化
+    b->timestamp = __sync_fetch_and_add(&global_timestamp, 1);
+//    printf("time %d\n",b->timestamp);
+}
