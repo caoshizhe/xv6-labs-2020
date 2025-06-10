@@ -316,7 +316,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  //char *mem;//无需新的内存空间
+  //char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -325,7 +325,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
 
-    // 如果页面是可写权限，那把它标记为 COW 并移除写权限
+    
     if (*pte & PTE_W) {
         *pte = (*pte & ~PTE_W) | PTE_COW;
     }
@@ -336,13 +336,13 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
    // goto err;
    //memmove(mem, (char*)pa, PGSIZE);
 
-   // 将爸爸的物理地址映射到新的页表
+   // 
 
     if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0){
    //   kfree(mem);
         goto err;
     }
-    // 将物理页的引用次数增加 1
+    // 
     kparef_inc((void*)pa);
   }
   return 0;
@@ -465,18 +465,18 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   }
 }
 
-// 处理 COW 页错误
+// 处理 COW 页
 int cow_handler(pagetable_t pagetable, uint64 va)
 {
     pte_t *pte;
 
-    // 拿到 va 对应的页表项
+    
     if((pte = walk(pagetable, va, 0)) == 0)
         panic("uvmcowcopy: walk");
 
     uint64 pa = PTE2PA(*pte);
     uint64 newpa;
-    // 转为 pa 丢到 kalloc 里面处理，因为涉及到物理页的记数操作
+    // 转为 pa 丢到 kalloc 里面处理，到物理页的记数操作
     if((newpa = (uint64)ktry_pgclone((void*)pa)) != 0){
         // 重新修改为可写，并删除 cow 标识
         uint64 flags = (PTE_FLAGS(*pte) | PTE_W) & ~PTE_COW;

@@ -68,7 +68,7 @@ usertrap(void)
   } else if((which_dev = devintr()) != 0){
     // ok
   } 
-    else if (r_scause() == 13 || r_scause() == 15) { // 和上一节实验一样，响应页错误
+    else if (r_scause() == 13 || r_scause() == 15) { // 响应页错误
         pte_t *pte;
         uint64 va = r_stval();
         // 检查地址是否合法
