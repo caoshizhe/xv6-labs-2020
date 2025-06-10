@@ -3,12 +3,12 @@
 #include "memlayout.h"
 #include "riscv.h"
 #include "spinlock.h"
-#include "proc.h"
-#include "defs.h"
 #include "sleeplock.h"
 #include "fs.h"
 #include "file.h"
+#include "proc.h"
 #include "fcntl.h"
+#include "defs.h"
 
 struct spinlock tickslock;
 uint ticks;
@@ -50,10 +50,10 @@ usertrap(void)
   w_stvec((uint64)kernelvec);
 
   struct proc *p = myproc();
-  
+
   // save user program counter.
   p->trapframe->epc = r_sepc();
-  
+
   if(r_scause() == 8){
     // system call
 
@@ -83,7 +83,7 @@ usertrap(void)
     
     // 验证地址合法性（必须在用户栈顶和进程大小之间）
     if(va < p->sz && va > p->trapframe->sp) {
-        // 尝试查找当前 va 在是哪个 vma 中
+        // 查找当前 va 在是哪个 vma 中
         for(int i=0; i<NVMA; i++) {
             if(va>=p->vmas[i].addr && va<p->vmas[i].addr+p->vmas[i].length) {
                 vma = &p->vmas[i];
@@ -134,8 +134,7 @@ usertrap(void)
             kfree(mem);  // 释放已分配的内存
         p->killed = 1;   // 终止进程
     }
-  
-    else {
+  } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;
@@ -149,7 +148,6 @@ usertrap(void)
     yield();
 
   usertrapret();
-}
 }
 
 //
@@ -177,7 +175,7 @@ usertrapret(void)
 
   // set up the registers that trampoline.S's sret will use
   // to get to user space.
-  
+
   // set S Previous Privilege mode to User.
   unsigned long x = r_sstatus();
   x &= ~SSTATUS_SPP; // clear SPP to 0 for user mode
@@ -206,7 +204,7 @@ kerneltrap()
   uint64 sepc = r_sepc();
   uint64 sstatus = r_sstatus();
   uint64 scause = r_scause();
-  
+
   if((sstatus & SSTATUS_SPP) == 0)
     panic("kerneltrap: not from supervisor mode");
   if(intr_get() != 0)
@@ -276,7 +274,7 @@ devintr()
     if(cpuid() == 0){
       clockintr();
     }
-    
+
     // acknowledge the software interrupt by clearing
     // the SSIP bit in sip.
     w_sip(r_sip() & ~2);
@@ -286,4 +284,3 @@ devintr()
     return 0;
   }
 }
-

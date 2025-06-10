@@ -16,6 +16,8 @@
 #include "file.h"
 #include "fcntl.h"
 
+
+#include "mman.h"  // 引入定义
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
 static int
@@ -490,65 +492,35 @@ sys_pipe(void)
 uint64
 sys_mmap(void)
 {
-    uint64 addr;
-    int len, prot, flags, fd, offset;
-    struct file* file;
-    struct vma* vma = 0;
-
-    // 获取 mmap 系统调用的入参，并检查是否合法
-    if(argaddr(0, &addr)<0 || argint(1, &len)<0
-       || argint(2, &prot)<0 || argint(3, &flags)<0
-       || argfd(4, &fd, &file)<0 || argint(5, &offset)<0)
-        return -1;
-
-    // 一些参数合法性校验
-    if(len <= 0)
-      return -1;        
-    if((prot & (PROT_READ|PROT_WRITE|PROT_EXEC)) == 0) // only PROT_READ, PROT_WRITE, PROT_EXEC
-        return -1;
-    if((prot & PROT_WRITE) && !file->writable && flags==MAP_SHARED) // MAP_SHARED 时，文件必须可写
-        return -1;
-    if((prot & PROT_READ) && !file->readable) // 同理，MAP_PRIVATE 时，文件必须可读，否则返回错误
-        return -1;
-
-    struct proc* p = myproc();
-    len = PGROUNDUP(len);
-
-    if(p->sz+len > MAXVA)
-        return -1;
-
-    if(offset<0 || offset%PGSIZE)
-        return -1;
-
-    // 查找一个空闲的 vma 区域    
-    for(int i=0; i<NVMA; i++) {
-        if(p->vmas[i].addr)
-            continue;
-        vma = &p->vmas[i];
-        break;
+  uint64 addr;
+  int length, prot, flags, fd, offset;
+  struct file *file;
+  struct proc *p = myproc();
+  if(argaddr(0, &addr) || argint(1, &length) || argint(2, &prot) ||
+    argint(3, &flags) || argfd(4, &fd, &file) || argint(5, &offset)) {
+    return -1;
+  }
+  if(!file->writable && (prot & PROT_WRITE) && flags == MAP_SHARED)
+    return -1;
+  length = PGROUNDUP(length);
+  if(p->sz > MAXVA - length)
+    return -1;
+  for(int i = 0; i < VMASIZE; i++) {
+    if(p->vma[i].used == 0) {
+      p->vma[i].used = 1;
+      p->vma[i].addr = p->sz;
+      p->vma[i].length = length;
+      p->vma[i].prot = prot;
+      p->vma[i].flags = flags;
+      p->vma[i].fd = fd;
+      p->vma[i].file = file;
+      p->vma[i].offset = offset;
+      filedup(file);
+      p->sz += length;
+      return p->vma[i].addr;
     }
-
-    // vma 全部被占用，没有空闲，返回🔙
-    if(!vma)
-        return -1;
-
-    if(addr == 0)
-        vma->addr = p->sz; // 用户未指定地址，则使用进程当前大小作为起始地址
-    else
-        vma->addr = addr; // 用户指定了地址
-
-    // 一些赋值操作
-    vma->length = len;
-    vma->prot = prot;
-    vma->flags = flags;
-    vma->offset = offset;
-    vma->file = file;
-    p->sz += len;
-    
-    // 文件引用 +1
-    filedup(file);
-
-    return vma->addr;
+  }
+  return -1;
 }
 
 uint64

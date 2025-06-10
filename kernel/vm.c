@@ -45,7 +45,7 @@ kvmmake(void)
 
   // map kernel stacks
   proc_mapstacks(kpgtbl);
-  
+
   return kpgtbl;
 }
 
@@ -174,6 +174,7 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
     if((*pte & PTE_V) == 0)
       //panic("uvmunmap: not mapped");
       continue; // 和页表实验一样，可能存在申请了内存但没使用，页表项可能是无效的
+      // panic("uvmunmap: not mapped");
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
     if(do_free){
@@ -308,7 +309,8 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       panic("uvmcopy: pte should exist");
     if((*pte & PTE_V) == 0)
       //panic("uvmcopy: page not present");
-      continue;
+      continue; // 复制的时候也可能存在申请了内存但没使用的情况，忽略异常
+      // panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
     if((mem = kalloc()) == 0)
@@ -332,7 +334,7 @@ void
 uvmclear(pagetable_t pagetable, uint64 va)
 {
   pte_t *pte;
-  
+
   pte = walk(pagetable, va, 0);
   if(pte == 0)
     panic("uvmclear");

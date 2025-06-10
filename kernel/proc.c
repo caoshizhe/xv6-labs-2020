@@ -28,7 +28,7 @@ extern char trampoline[]; // trampoline.S
 void
 proc_mapstacks(pagetable_t kpgtbl) {
   struct proc *p;
-  
+
   for(p = proc; p < &proc[NPROC]; p++) {
     char *pa = kalloc();
     if(pa == 0)
@@ -43,7 +43,7 @@ void
 procinit(void)
 {
   struct proc *p;
-  
+
   initlock(&pid_lock, "nextpid");
   for(p = proc; p < &proc[NPROC]; p++) {
       initlock(&p->lock, "proc");
@@ -83,7 +83,7 @@ myproc(void) {
 int
 allocpid() {
   int pid;
-  
+
   acquire(&pid_lock);
   pid = nextpid;
   nextpid = nextpid + 1;
@@ -222,7 +222,7 @@ userinit(void)
 
   p = allocproc();
   initproc = p;
-  
+
   // allocate one user page and copy init's instructions
   // and data into it.
   uvminit(p->pagetable, initcode, sizeof(initcode));
@@ -311,6 +311,7 @@ fork(void)
         filedup(p->vmas[i].file); // 文件引用次数加一，因为现在子进程也在使用这个文件
     }
   }
+
   release(&np->lock);
 
   return pid;
@@ -361,6 +362,7 @@ exit(int status)
       p->ofile[fd] = 0;
     }
   }
+
   // 清理所有的 VMA
   for(int i = 0; i < 16; i++) {
     if(p->vmas[i].length > 0) { // 同样只处理被使用的 vma
@@ -395,7 +397,7 @@ exit(int status)
   acquire(&p->lock);
   struct proc *original_parent = p->parent;
   release(&p->lock);
-  
+
   // we need the parent's lock in order to wake it up from wait().
   // the parent-then-child rule says we have to lock it first.
   acquire(&original_parent->lock);
@@ -466,7 +468,7 @@ wait(uint64 addr)
       release(&p->lock);
       return -1;
     }
-    
+
     // Wait for a child to exit.
     sleep(p, &p->lock);  //DOC: wait-sleep
   }
@@ -484,12 +486,12 @@ scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
-  
+
   c->proc = 0;
   for(;;){
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
-    
+
     int nproc = 0;
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
@@ -582,7 +584,7 @@ void
 sleep(void *chan, struct spinlock *lk)
 {
   struct proc *p = myproc();
-  
+
   // Must acquire p->lock in order to
   // change p->state and then call sched.
   // Once we hold p->lock, we can be
@@ -712,10 +714,9 @@ procdump(void)
   for(p = proc; p < &proc[NPROC]; p++){
     if(p->state == UNUSED)
       continue;
-    if(p->state >= 0 && p->state < NELEM(states) && states[p->state])
+    if(p->state >= 0 && p->state < NELEM(states) && states[p->state]){
       state = states[p->state];
-    else
-      state = "???";
+      state = "???";}
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }

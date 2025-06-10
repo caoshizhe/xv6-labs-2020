@@ -82,7 +82,7 @@ struct trapframe {
 
 enum procstate { UNUSED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
-#define NVMA 16  // 每个进程的最大 VMA 数量
+#define NVMA 16  // 每个进程的最大VMA数量
 
 struct vma {
   uint64 addr;       // 开始映射的地址（va）
@@ -92,6 +92,7 @@ struct vma {
   struct file *file; // 映射的文件
   uint64 offset;     // 文件偏移量
 };
+
 // Per-process state
 struct proc {
   struct spinlock lock;
@@ -112,6 +113,6 @@ struct proc {
   struct context context;      // swtch() here to run process
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
-  char name[16];               // Process name (debugging)
-  struct vma vmas[NVMA];
+  char name[16];               // Process name (debugging)More actions
+  struct vma vmas[NVMA];       // 进程的内存映射区域
 };
