@@ -6,7 +6,6 @@
 #include "kernel/fs.h"
 #include "user/user.h"
 
-#include "mman.h"  // 引入定义
 
 void mmap_test();
 void fork_test();
